@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#10261f">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Nano LED</title>
+<style>
+  :root {
+    --pcb: #10261f;
+    --pcb-hi: #183a2f;
+    --silver: #d9e2dc;
+    --muted: #8fa89c;
+    --led-on: #ffb020;
+    --led-off: #2a4a3e;
+    --err: #ff7a6b;
+    --font: "Bahnschrift", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--pcb);
+    color: var(--silver);
+    font-family: var(--font);
+    display: flex;
+    flex-direction: column;
+    padding: env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+    max-width: 520px;
+    margin: 0 auto;
+  }
+  header { padding: 20px 0 8px; }
+  h1 { font-size: 1.4rem; font-weight: 600; margin: 0 0 4px; letter-spacing: .01em; }
+  #stato { color: var(--muted); font-size: .95rem; min-height: 1.4em; }
+  #stato.ok { color: var(--led-on); }
+  #stato.errore { color: var(--err); }
+
+  button {
+    font: inherit;
+    color: inherit;
+    border: 2px solid var(--silver);
+    background: transparent;
+    border-radius: 14px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:focus-visible { outline: 3px solid var(--led-on); outline-offset: 3px; }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+
+  #connetti {
+    margin: 12px 0 20px;
+    padding: 16px;
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+  #connetti.connesso { border-color: var(--led-on); color: var(--led-on); }
+
+  .leds { display: grid; gap: 14px; flex: 1; align-content: start; }
+  .led {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 22px 20px;
+    background: var(--pcb-hi);
+    border-color: var(--led-off);
+    text-align: left;
+    transition: border-color .15s, background .15s;
+  }
+  .led .lamp {
+    flex: none;
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: var(--led-off);
+    border: 2px solid var(--muted);
+    transition: background .15s, box-shadow .15s, border-color .15s;
+  }
+  .led .nome { font-size: 1.25rem; font-weight: 600; display: block; }
+  .led .info { color: var(--muted); font-size: .9rem; }
+  .led.on { border-color: var(--led-on); }
+  .led.on .lamp {
+    background: var(--led-on);
+    border-color: #ffe0a0;
+    box-shadow: 0 0 22px 6px rgba(255, 176, 32, .55);
+  }
+  .led.on .info { color: var(--led-on); }
+
+  #log {
+    margin: 20px 0 16px;
+    padding: 10px 12px;
+    background: rgba(0,0,0,.25);
+    border-radius: 10px;
+    font: .8rem/1.5 ui-monospace, Consolas, monospace;
+    color: var(--muted);
+    height: 7.5em;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Nano LED</h1>
+  <div id="stato" role="status" aria-live="polite">Non connesso</div>
+</header>
+
+<button id="connetti" type="button">Connetti</button>
+
+<div class="leds">
+  <button id="led1" class="led" type="button" disabled>
+    <span class="lamp"></span>
+    <span><span class="nome">LED 1</span><span class="info">Pin 11 · stato sconosciuto</span></span>
+  </button>
+  <button id="led2" class="led" type="button" disabled>
+    <span class="lamp"></span>
+    <span><span class="nome">LED 2</span><span class="info">Pin 12 · stato sconosciuto</span></span>
+  </button>
+</div>
+
+<div id="log" aria-label="Messaggi dall'Arduino"></div>
+
+<script>
+"use strict";
+
+// Servizi BLE seriali più diffusi (HM-10 / JDY / CC41 = FFE0, altri = FFF0, Nordic UART)
+const SERVIZI = [
+  0xffe0,
+  0xfff0,
+  0xffe5,
+  "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
+  "0000ffe0-0000-1000-8000-00805f9b34fb"
+];
+
+const el = {
+  stato: document.getElementById("stato"),
+  connetti: document.getElementById("connetti"),
+  log: document.getElementById("log"),
+  led: { 1: document.getElementById("led1"), 2: document.getElementById("led2") }
+};
+const PIN = { 1: 11, 2: 12 };
+
+let device = null;
+let charScrittura = null;
+let charNotifica = null;
+let bufferRx = "";
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
+function setStato(testo, classe) {
+  el.stato.textContent = testo;
+  el.stato.className = classe || "";
+}
+
+function log(riga) {
+  el.log.textContent += riga + "\n";
+  el.log.scrollTop = el.log.scrollHeight;
+}
+
+function mostraLed(n, acceso) {
+  const b = el.led[n];
+  b.classList.toggle("on", acceso);
+  b.querySelector(".info").textContent = "Pin " + PIN[n] + " · " + (acceso ? "acceso" : "spento");
+}
+
+function resetLed() {
+  [1, 2].forEach(n => {
+    el.led[n].classList.remove("on");
+    el.led[n].querySelector(".info").textContent = "Pin " + PIN[n] + " · stato sconosciuto";
+  });
+}
+
+function abilitaLed(si) {
+  el.led[1].disabled = !si;
+  el.led[2].disabled = !si;
+}
+
+// Risposte dell'Arduino: "Pin 11: ON" / "Pin 12: OFF"
+function gestisciRiga(riga) {
+  riga = riga.trim();
+  if (!riga) return;
+  log("< " + riga);
+  const m = /Pin\s*(11|12)\s*:\s*(ON|OFF)/i.exec(riga);
+  if (m) mostraLed(m[1] === "11" ? 1 : 2, m[2].toUpperCase() === "ON");
+}
+
+function allaNotifica(ev) {
+  bufferRx += dec.decode(ev.target.value);
+  let i;
+  while ((i = bufferRx.search(/[\r\n]/)) >= 0) {
+    gestisciRiga(bufferRx.slice(0, i));
+    bufferRx = bufferRx.slice(i + 1);
+  }
+}
+
+async function trovaCaratteristiche(server) {
+  for (const uuid of SERVIZI) {
+    let servizio;
+    try { servizio = await server.getPrimaryService(uuid); } catch (e) { continue; }
+    const chars = await servizio.getCharacteristics();
+    let scrivi = null, notifica = null;
+    for (const c of chars) {
+      if (!notifica && (c.properties.notify || c.properties.indicate)) notifica = c;
+      if (!scrivi && (c.properties.write || c.properties.writeWithoutResponse)) scrivi = c;
+    }
+    // Nordic UART ha due caratteristiche, HM-10 una sola per entrambe le direzioni
+    if (scrivi) return { scrivi, notifica };
+  }
+  throw new Error("Nessun servizio seriale BLE trovato su questo dispositivo");
+}
+
+async function connetti() {
+  if (!navigator.bluetooth) {
+    setStato("Web Bluetooth non disponibile: usa Chrome su Android", "errore");
+    return;
+  }
+  el.connetti.disabled = true;
+  try {
+    setStato("Cerco il modulo…");
+    device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: SERVIZI
+    });
+    device.addEventListener("gattserverdisconnected", alDisconnesso);
+    setStato("Connessione a " + (device.name || "dispositivo") + "…");
+    const server = await device.gatt.connect();
+    const { scrivi, notifica } = await trovaCaratteristiche(server);
+    charScrittura = scrivi;
+    charNotifica = notifica;
+    if (notifica) {
+      await notifica.startNotifications();
+      notifica.addEventListener("characteristicvaluechanged", allaNotifica);
+    }
+    bufferRx = "";
+    setStato("Connesso a " + (device.name || "dispositivo"), "ok");
+    el.connetti.textContent = "Disconnetti";
+    el.connetti.classList.add("connesso");
+    abilitaLed(true);
+    log("Connesso. Tocca un LED per commutarlo.");
+  } catch (e) {
+    if (e.name === "NotFoundError") setStato("Nessun dispositivo selezionato");
+    else setStato("Errore: " + e.message, "errore");
+    pulisci();
+  } finally {
+    el.connetti.disabled = false;
+  }
+}
+
+function pulisci() {
+  charScrittura = null;
+  charNotifica = null;
+  abilitaLed(false);
+  resetLed();
+  el.connetti.textContent = "Connetti";
+  el.connetti.classList.remove("connesso");
+}
+
+function alDisconnesso() {
+  pulisci();
+  setStato("Connessione persa. Premi Connetti per riprovare", "errore");
+}
+
+function disconnetti() {
+  if (device && device.gatt.connected) {
+    device.removeEventListener("gattserverdisconnected", alDisconnesso);
+    device.gatt.disconnect();
+  }
+  pulisci();
+  setStato("Non connesso");
+}
+
+async function invia(testo) {
+  if (!charScrittura) return;
+  const dati = enc.encode(testo);
+  try {
+    if (charScrittura.properties.writeWithoutResponse) await charScrittura.writeValueWithoutResponse(dati);
+    else await charScrittura.writeValue(dati);
+    log("> " + testo);
+  } catch (e) {
+    setStato("Invio fallito: " + e.message, "errore");
+  }
+}
+
+el.connetti.addEventListener("click", () => {
+  if (device && device.gatt && device.gatt.connected) disconnetti();
+  else connetti();
+});
+el.led[1].addEventListener("click", () => invia("1"));
+el.led[2].addEventListener("click", () => invia("2"));
+
+// Service worker: permette l'uso offline quando la pagina è servita via HTTPS o localhost
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+</script>
+</body>
+</html>
