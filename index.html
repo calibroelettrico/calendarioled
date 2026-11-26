@@ -106,9 +106,9 @@
     overflow-y: auto;
     white-space: pre-wrap;
   }
-  #apriCal, .aggiungi, #indietro { padding: 12px; border-color: var(--led-off); color: var(--muted); }
+  #apriCal, .aggiungi, #indietro, #annulla { padding: 12px; border-color: var(--led-off); color: var(--muted); }
   #apriCal { margin-top: 18px; }
-  #indietro { margin-top: 16px; align-self: flex-start; padding: 8px 14px; }
+  #indietro, #annulla { margin-top: 16px; align-self: flex-start; padding: 8px 14px; }
   .vista-cal h2 { font-size: 1rem; margin: 22px 0 10px; color: var(--muted); font-weight: 600; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chip { flex: 1 0 20%; padding: 10px 0; border-color: var(--led-off); }
@@ -124,6 +124,19 @@
   #errore { min-height: 1.4em; margin-bottom: 8px; color: var(--err); font-size: .9rem; }
   .giorno { display: grid; gap: 2px; padding: 10px 12px; margin-bottom: 8px; background: var(--pcb-hi); border-radius: 10px; font-size: .85rem; color: var(--muted); }
   .giorno b { color: var(--silver); }
+  .nota { margin: 0 0 14px; color: var(--muted); font-size: .85rem; }
+  .regola { display: grid; gap: 4px; padding: 12px; margin-bottom: 10px; background: var(--pcb-hi); border-radius: 10px; font-size: .85rem; color: var(--muted); }
+  .regola .titolo { color: var(--silver); font-weight: 600; font-size: .95rem; }
+  .azioni { display: flex; gap: 8px; margin-top: 6px; }
+  .azioni button { flex: 1; padding: 8px; border-color: var(--led-off); color: var(--silver); }
+  .periodo { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: .9rem; }
+  .periodo select { font: inherit; padding: 8px; background: var(--pcb-hi); color: var(--silver); border: 2px solid var(--led-off); border-radius: 8px; }
+  .mese { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
+  .mese b { flex: 0 0 100%; color: var(--muted); font-size: .85rem; text-transform: uppercase; }
+  .gd { width: 38px; height: 38px; padding: 0; border-width: 1px; border-color: var(--led-off); border-radius: 8px; font-size: .8rem; }
+  .gd[aria-pressed="true"] { background: var(--led-on); color: var(--pcb); border-color: var(--led-on); }
+  #applica { margin: 22px 0 6px; padding: 16px; font-size: 1.1rem; font-weight: 600; border-color: var(--led-on); color: var(--led-on); }
+  #erroreRegola { min-height: 1.4em; color: var(--err); font-size: .9rem; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -153,24 +166,38 @@
 </div>
 
 <section id="calendario" class="vista-cal" hidden>
-  <button id="indietro" type="button">← Indietro</button>
-  <h1>Calendario</h1>
-  <h2>Giorni</h2>
-  <div id="giorni" class="chips"></div>
-  <div class="scorciatoie">
-    <button type="button" data-g="0123456">Tutti</button>
-    <button type="button" data-g="01234">Lun–Ven</button>
-    <button type="button" data-g="56">Sab–Dom</button>
-    <button type="button" data-g="">Nessuno</button>
+  <div id="elenco">
+    <button id="indietro" type="button">← Indietro</button>
+    <h1>Calendario annuale</h1>
+    <p class="nota">Dal 1 gennaio al 31 dicembre. Se più regole valgono nello stesso giorno, vince quella più in basso.</p>
+    <div id="regole"></div>
+    <button id="nuova" class="aggiungi" type="button">+ Nuova regola</button>
+    <button id="conferma" type="button">Conferma modifica</button>
+    <div id="errore" role="alert"></div>
   </div>
-  <h2>LED 1</h2><div id="fasce0"></div>
-  <button id="agg0" class="aggiungi" type="button">+ Aggiungi fascia</button>
-  <h2>LED 2</h2><div id="fasce1"></div>
-  <button id="agg1" class="aggiungi" type="button">+ Aggiungi fascia</button>
-  <button id="conferma" type="button">Conferma modifica</button>
-  <div id="errore" role="alert"></div>
-  <h2>Calendario attuale</h2>
-  <div id="riepilogo"></div>
+  <div id="editor" hidden>
+    <button id="annulla" type="button">← Annulla</button>
+    <h1 id="titoloRegola">Regola</h1>
+    <h2>Giorni della settimana</h2>
+    <div id="giorni" class="chips"></div>
+    <h2>Date dell’anno</h2>
+    <div class="periodo">
+      Dal <select id="dg"></select><select id="dm"></select>
+      al <select id="ag"></select><select id="am"></select>
+    </div>
+    <div class="scorciatoie">
+      <button id="addPeriodo" type="button">Aggiungi periodo</button>
+      <button id="tuttoAnno" type="button">Tutto l’anno</button>
+      <button id="svuotaDate" type="button">Svuota</button>
+    </div>
+    <div id="anno"></div>
+    <h2>LED 1</h2><div id="fasce0"></div>
+    <button id="agg0" class="aggiungi" type="button">+ Aggiungi fascia</button>
+    <h2>LED 2</h2><div id="fasce1"></div>
+    <button id="agg1" class="aggiungi" type="button">+ Aggiungi fascia</button>
+    <button id="applica" type="button">Applica regola</button>
+    <div id="erroreRegola" role="alert"></div>
+  </div>
 </section>
 
 <script>
@@ -294,7 +321,7 @@ async function connetti() {
     abilitaLed(true);
     log("Connesso. Tocca un LED per commutarlo.");
     await inviaOra();
-    calendarioInArrivo = vuoto();
+    regoleInArrivo = [];
     await invia("G\n");
   } catch (e) {
     if (e.name === "NotFoundError") setStato("Nessun dispositivo selezionato");
@@ -360,14 +387,25 @@ function inviaOra() {
   return invia(testo + "\n");
 }
 
-// ---- Calendario ----
+// ---- Calendario annuale ----
+// Una regola = date dell’anno (bit per ogni giorno, febbraio sempre 29) + giorni della settimana + fasce dei due LED.
+// Se più regole valgono nello stesso giorno, vince l’ultima della lista.
 const GIORNI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
-const MAX_FASCE = 4;
+const MESI = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
+const GG = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const CUM = [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335];
+const MAX_FASCE = 4, MAX_REGOLE = 20;
 const $ = id => document.getElementById(id);
-const vuoto = () => Array.from({ length: 7 }, () => [[], []]);   // [giorno][led] = [{on, off}]
-let calendario = vuoto(), calendarioInArrivo = vuoto(), inAttesa = null;
-let bozza = [[], []], sporca = false;
-const selezione = new Set();
+const nuovaRegola = () => ({ date: new Uint8Array(46), giorni: 127, fasce: [[], []] });
+const copia = r => ({ date: r.date.slice(), giorni: r.giorni, fasce: JSON.parse(JSON.stringify(r.fasce)) });
+const bit = (u, i) => (u[i >> 3] >> (i & 7)) & 1;
+const imposta = (u, i, v) => { if (v) u[i >> 3] |= 1 << (i & 7); else u[i >> 3] &= ~(1 << (i & 7)); };
+const hex = u => [...u].map(b => b.toString(16).padStart(2, "0")).join("");
+const daHex = h => Uint8Array.from(h.match(/../g), x => parseInt(x, 16));
+const slotsTesto = f => f.map(t => (t.on + t.off).replace(/:/g, "")).join("");
+const daSlots = s => (s.match(/\d{8}/g) || []).map(t => ({
+  on: t.slice(0, 2) + ":" + t.slice(2, 4), off: t.slice(4, 6) + ":" + t.slice(6, 8) }));
+let regole = [], regoleInArrivo = [], inAttesa = false, inModifica = -1, bozza = nuovaRegola();
 
 function mostraVista(cal) {
   $("principale").hidden = cal;
@@ -375,31 +413,35 @@ function mostraVista(cal) {
   window.scrollTo(0, 0);
 }
 
-// Righe dalla scheda: C<giorno><led>hhmmhhmm... e CE a fine elenco
+function mostraPannello(editor) {
+  $("elenco").hidden = editor;
+  $("editor").hidden = !editor;
+  window.scrollTo(0, 0);
+}
+
+// Righe dalla scheda: R<date><giorni>,<fasce LED1>,<fasce LED2> e CE a fine elenco
 function gestisciCalendario(riga) {
   let m;
-  if ((m = /^C([0-6])([12])((?:\d{8})*)$/.exec(riga))) {
-    calendarioInArrivo[+m[1]][+m[2] - 1] = (m[3].match(/\d{8}/g) || []).map(t => ({
-      on: t.slice(0, 2) + ":" + t.slice(2, 4), off: t.slice(4, 6) + ":" + t.slice(6, 8) }));
+  if ((m = /^R([0-9A-Fa-f]{92})([0-9A-Fa-f]{2}),(\d*),(\d*)$/.exec(riga))) {
+    regoleInArrivo.push({ date: daHex(m[1]), giorni: parseInt(m[2], 16), fasce: [daSlots(m[3]), daSlots(m[4])] });
     return true;
   }
   if (riga === "CE") {
-    calendario = calendarioInArrivo;
+    regole = regoleInArrivo;
     $("apriCal").disabled = false;
-    disegnaRiepilogo();
+    disegnaRegole();
     log("Calendario letto dalla scheda.");
     return true;
   }
   if (riga === "Calendario salvato" && inAttesa) {
-    calendario = inAttesa; inAttesa = null; sporca = false;
-    disegnaRiepilogo();
+    inAttesa = false;
     mostraVista(false);
     setStato("Calendario salvato nella scheda", "ok");
     log("Calendario salvato.");
     return true;
   }
   if (riga === "Calendario non valido") {
-    inAttesa = null;
+    inAttesa = false;
     $("conferma").disabled = false;
     $("errore").textContent = "La scheda ha rifiutato il calendario";
     return true;
@@ -407,25 +449,77 @@ function gestisciCalendario(riga) {
   return false;
 }
 
-const testoFasce = f => f.length ? f.map(t => t.on + "–" + t.off).join(", ") : "spento";
+const dataTesto = i => {
+  let m = 11;
+  while (CUM[m] > i) m--;
+  return (i - CUM[m] + 1) + " " + MESI[m];
+};
 
-function disegnaRiepilogo() {
-  $("riepilogo").innerHTML = calendario.map((g, i) =>
-    `<div class="giorno"><b>${GIORNI[i]}</b><span>LED 1: ${testoFasce(g[0])}</span><span>LED 2: ${testoFasce(g[1])}</span></div>`
-  ).join("");
+function riassunto(r) {
+  let n = 0, a = -1, b = -1;
+  for (let i = 0; i < 366; i++) if (bit(r.date, i)) { n++; if (a < 0) a = i; b = i; }
+  const gg = r.giorni === 127 ? "tutti i giorni"
+    : GIORNI.filter((_, i) => (r.giorni >> i) & 1).join(" ") || "nessun giorno";
+  const f = x => x.length ? x.map(t => t.on + "–" + t.off).join(", ") : "spento";
+  return [n ? `${n} date, dal ${dataTesto(a)} al ${dataTesto(b)}` : "nessuna data", gg,
+          "LED 1: " + f(r.fasce[0]), "LED 2: " + f(r.fasce[1])];
+}
+
+function disegnaRegole() {
+  const box = $("regole");
+  box.textContent = "";
+  if (!regole.length) {
+    const p = document.createElement("p");
+    p.className = "vuoto";
+    p.textContent = "Nessuna regola: i LED restano spenti";
+    box.append(p);
+  }
+  regole.forEach((r, i) => {
+    const c = document.createElement("div");
+    c.className = "regola";
+    riassunto(r).forEach((t, k) => {
+      const sp = document.createElement("span");
+      if (!k) sp.className = "titolo";
+      sp.textContent = t;
+      c.append(sp);
+    });
+    const az = document.createElement("div");
+    az.className = "azioni";
+    [["Modifica", () => apriEditor(i)],
+     ["Elimina", () => { regole.splice(i, 1); disegnaRegole(); }]].forEach(([t, f]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = t;
+      b.addEventListener("click", f);
+      az.append(b);
+    });
+    c.append(az);
+    box.append(c);
+  });
+  $("nuova").hidden = regole.length >= MAX_REGOLE;
+}
+
+function disegnaChips() {
+  [...$("giorni").children].forEach((b, i) => b.setAttribute("aria-pressed", ((bozza.giorni >> i) & 1) === 1));
+}
+
+function disegnaAnno() {
+  document.querySelectorAll(".gd").forEach(b =>
+    b.setAttribute("aria-pressed", bit(bozza.date, +b.dataset.i) === 1));
 }
 
 function disegnaBozza() {
   [0, 1].forEach(led => {
+    const lista = bozza.fasce[led];
     const box = $("fasce" + led);
     box.textContent = "";
-    if (!bozza[led].length) {
+    if (!lista.length) {
       const p = document.createElement("p");
       p.className = "vuoto";
       p.textContent = "Nessuna fascia: sempre spento";
       box.append(p);
     }
-    bozza[led].forEach((f, i) => {
+    lista.forEach((f, i) => {
       const riga = document.createElement("div");
       riga.className = "fascia";
       [["on", "Accendi"], ["off", "Spegni"]].forEach(([k, titolo]) => {
@@ -434,7 +528,7 @@ function disegnaBozza() {
         const inp = document.createElement("input");
         inp.type = "time";
         inp.value = f[k];
-        inp.addEventListener("input", () => { f[k] = inp.value; sporca = true; });
+        inp.addEventListener("input", () => { f[k] = inp.value; });
         l.append(inp);
         riga.append(l);
       });
@@ -443,85 +537,122 @@ function disegnaBozza() {
       x.className = "rimuovi";
       x.textContent = "✕";
       x.setAttribute("aria-label", "Rimuovi fascia");
-      x.addEventListener("click", () => { bozza[led].splice(i, 1); sporca = true; disegnaBozza(); });
+      x.addEventListener("click", () => { lista.splice(i, 1); disegnaBozza(); });
       riga.append(x);
       box.append(riga);
     });
-    $("agg" + led).hidden = bozza[led].length >= MAX_FASCE;
+    $("agg" + led).hidden = lista.length >= MAX_FASCE;
   });
 }
 
-// Selezionando un giorno non ancora modificato, la bozza parte dal suo calendario attuale
-function scegli(lista) {
-  selezione.clear();
-  lista.forEach(i => selezione.add(i));
-  [...$("giorni").children].forEach((b, i) => b.setAttribute("aria-pressed", selezione.has(i)));
-  if (!sporca && selezione.size) {
-    const d = Math.min(...selezione);
-    bozza = [0, 1].map(l => calendario[d][l].map(t => ({ ...t })));
-    disegnaBozza();
-  }
+function apriEditor(i) {
+  inModifica = i;
+  bozza = i >= 0 ? copia(regole[i]) : nuovaRegola();
+  $("titoloRegola").textContent = i >= 0 ? "Modifica regola" : "Nuova regola";
+  $("erroreRegola").textContent = "";
+  disegnaChips();
+  disegnaAnno();
+  disegnaBozza();
+  mostraPannello(true);
 }
 
+// Costruzione una tantum dell’editor
 GIORNI.forEach((g, i) => {
   const b = document.createElement("button");
   b.type = "button";
   b.className = "chip";
   b.textContent = g;
-  b.setAttribute("aria-pressed", "false");
-  b.addEventListener("click", () =>
-    scegli(selezione.has(i) ? [...selezione].filter(x => x !== i) : [...selezione, i]));
+  b.addEventListener("click", () => { bozza.giorni ^= 1 << i; disegnaChips(); });
   $("giorni").append(b);
 });
-document.querySelectorAll(".scorciatoie button").forEach(b =>
-  b.addEventListener("click", () => scegli([...b.dataset.g].map(Number))));
+MESI.forEach((nome, k) => {
+  const bl = document.createElement("div");
+  bl.className = "mese";
+  const t = document.createElement("b");
+  t.textContent = nome;
+  bl.append(t);
+  for (let d = 1; d <= GG[k]; d++) {
+    const i = CUM[k] + d - 1;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "gd";
+    b.textContent = d;
+    b.dataset.i = i;
+    b.addEventListener("click", () => { imposta(bozza.date, i, !bit(bozza.date, i)); disegnaAnno(); });
+    bl.append(b);
+  }
+  $("anno").append(bl);
+});
+["dg", "ag"].forEach(id => {
+  for (let d = 1; d <= 31; d++) $(id).add(new Option(d, d));
+});
+["dm", "am"].forEach(id => MESI.forEach((m, k) => $(id).add(new Option(m, k))));
+$("ag").value = 31;
+$("am").value = 11;
+
+$("addPeriodo").addEventListener("click", () => {
+  const dm = +$("dm").value, am = +$("am").value, dg = +$("dg").value, ag = +$("ag").value;
+  if (dg > GG[dm] || ag > GG[am]) { $("erroreRegola").textContent = "Giorno non valido per quel mese"; return; }
+  const fine = CUM[am] + ag - 1;
+  for (let i = CUM[dm] + dg - 1; ; i = (i + 1) % 366) {   // se la fine precede l’inizio, il periodo passa il 31 dicembre
+    imposta(bozza.date, i, 1);
+    if (i === fine) break;
+  }
+  $("erroreRegola").textContent = "";
+  disegnaAnno();
+});
+$("tuttoAnno").addEventListener("click", () => {
+  for (let i = 0; i < 366; i++) imposta(bozza.date, i, 1);
+  disegnaAnno();
+});
+$("svuotaDate").addEventListener("click", () => { bozza.date.fill(0); disegnaAnno(); });
 [0, 1].forEach(led => $("agg" + led).addEventListener("click", () => {
-  bozza[led].push({ on: "", off: "" });
-  sporca = true;
+  bozza.fasce[led].push({ on: "", off: "" });
   disegnaBozza();
 }));
 
+$("applica").addEventListener("click", () => {
+  const e = t => { $("erroreRegola").textContent = t; };
+  if (!bozza.date.some(x => x)) return e("Seleziona almeno una data");
+  if (!bozza.giorni) return e("Seleziona almeno un giorno della settimana");
+  for (const led of bozza.fasce) for (const f of led) {
+    if (!f.on || !f.off) return e("Compila tutti gli orari");
+    if (f.on === f.off) return e("Accensione e spegnimento non possono coincidere");
+  }
+  if (inModifica >= 0) regole[inModifica] = bozza; else regole.push(bozza);
+  disegnaRegole();
+  mostraPannello(false);
+});
+$("annulla").addEventListener("click", () => mostraPannello(false));
+$("nuova").addEventListener("click", () => apriEditor(-1));
+$("indietro").addEventListener("click", () => mostraVista(false));
 $("apriCal").addEventListener("click", () => {
-  bozza = [[], []];
-  sporca = false;
   $("errore").textContent = "";
   $("conferma").disabled = false;
-  scegli([]);
-  disegnaBozza();
+  disegnaRegole();
+  mostraPannello(false);
   mostraVista(true);
 });
-$("indietro").addEventListener("click", () => mostraVista(false));
 
 $("conferma").addEventListener("click", async () => {
-  const errore = t => { $("errore").textContent = t; };
-  if (!selezione.size) return errore("Seleziona almeno un giorno");
-  for (const led of bozza) for (const f of led) {
-    if (!f.on || !f.off) return errore("Compila tutti gli orari");
-    if (f.on === f.off) return errore("Accensione e spegnimento non possono coincidere");
-  }
-  if (!bozza[0].length && !bozza[1].length &&
-      !confirm("Nessuna fascia: nei giorni scelti i LED resteranno spenti. Confermi?")) return;
-
-  const nuovo = JSON.parse(JSON.stringify(calendario));
-  selezione.forEach(d => { nuovo[d] = JSON.parse(JSON.stringify(bozza)); });
-
+  if (!regole.length && !confirm("Nessuna regola: i LED resteranno spenti. Confermi?")) return;
   let testo = "KS\n";
-  nuovo.forEach((g, d) => g.forEach((f, r) => {
-    testo += "K" + d + (r + 1) + f.map(t => (t.on + t.off).replace(/:/g, "")).join("") + "\n";
-  }));
-  testo += "KE\n";
-
-  inAttesa = nuovo;
+  regole.forEach(r => {
+    testo += "R" + hex(r.date) + r.giorni.toString(16).padStart(2, "0") + "," +
+             slotsTesto(r.fasce[0]) + "," + slotsTesto(r.fasce[1]) + "\n";
+  });
+  testo += "KE" + String(regole.length).padStart(2, "0") + "\n";
+  inAttesa = true;
   $("conferma").disabled = true;
-  errore("Invio in corso…");
+  $("errore").textContent = "Invio in corso…";
   await scrivi(testo);
   setTimeout(() => {
     if (inAttesa) {
-      inAttesa = null;
+      inAttesa = false;
       $("conferma").disabled = false;
-      errore("La scheda non ha confermato: riprova");
+      $("errore").textContent = "La scheda non ha confermato: riprova";
     }
-  }, 8000);
+  }, 20000);
 });
 
 el.ora.addEventListener("click", inviaOra);
