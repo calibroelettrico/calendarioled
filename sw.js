@@ -1,4 +1,4 @@
-const CACHE = "nano-led-v2";
+const CACHE = "nano-led-v3";
 const FILE = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {
