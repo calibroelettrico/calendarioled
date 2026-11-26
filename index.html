@@ -8,6 +8,7 @@
 <title>Nano LED</title>
 <style>
   :root {
+    color-scheme: dark;
     --pcb: #10261f;
     --pcb-hi: #183a2f;
     --silver: #d9e2dc;
@@ -18,7 +19,10 @@
     --font: "Bahnschrift", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
+  html { height: 100%; }
+  body { min-height: 100%; margin: 0; }
+  [hidden] { display: none !important; }
+  #principale, #calendario { display: flex; flex-direction: column; flex: 1; }
   body {
     background: var(--pcb);
     color: var(--silver);
@@ -102,10 +106,29 @@
     overflow-y: auto;
     white-space: pre-wrap;
   }
+  #apriCal, .aggiungi, #indietro { padding: 12px; border-color: var(--led-off); color: var(--muted); }
+  #apriCal { margin-top: 18px; }
+  #indietro { margin-top: 16px; align-self: flex-start; padding: 8px 14px; }
+  .vista-cal h2 { font-size: 1rem; margin: 22px 0 10px; color: var(--muted); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { flex: 1 0 20%; padding: 10px 0; border-color: var(--led-off); }
+  .chip[aria-pressed="true"] { border-color: var(--led-on); color: var(--led-on); background: var(--pcb-hi); }
+  .scorciatoie { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .scorciatoie button { padding: 6px 12px; font-size: .85rem; border-color: var(--led-off); color: var(--muted); }
+  .fascia { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 10px; }
+  .fascia label { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: .8rem; color: var(--muted); }
+  .fascia input { font: inherit; padding: 10px; background: var(--pcb-hi); color: var(--silver); border: 2px solid var(--led-off); border-radius: 10px; }
+  .rimuovi { flex: none; width: 44px; height: 44px; border-color: var(--led-off); color: var(--muted); }
+  .vuoto { margin: 0 0 10px; color: var(--muted); font-size: .9rem; }
+  #conferma { margin: 22px 0 6px; padding: 16px; font-size: 1.1rem; font-weight: 600; border-color: var(--led-on); color: var(--led-on); }
+  #errore { min-height: 1.4em; margin-bottom: 8px; color: var(--err); font-size: .9rem; }
+  .giorno { display: grid; gap: 2px; padding: 10px 12px; margin-bottom: 8px; background: var(--pcb-hi); border-radius: 10px; font-size: .85rem; color: var(--muted); }
+  .giorno b { color: var(--silver); }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
+<div id="principale">
 <header>
   <h1>Nano LED</h1>
   <div id="stato" role="status" aria-live="polite">Non connesso</div>
@@ -125,7 +148,30 @@
   </button>
 </div>
 
+<button id="apriCal" type="button" disabled>Modifica calendario</button>
 <div id="log" aria-label="Messaggi dall'Arduino"></div>
+</div>
+
+<section id="calendario" class="vista-cal" hidden>
+  <button id="indietro" type="button">← Indietro</button>
+  <h1>Calendario</h1>
+  <h2>Giorni</h2>
+  <div id="giorni" class="chips"></div>
+  <div class="scorciatoie">
+    <button type="button" data-g="0123456">Tutti</button>
+    <button type="button" data-g="01234">Lun–Ven</button>
+    <button type="button" data-g="56">Sab–Dom</button>
+    <button type="button" data-g="">Nessuno</button>
+  </div>
+  <h2>LED 1</h2><div id="fasce0"></div>
+  <button id="agg0" class="aggiungi" type="button">+ Aggiungi fascia</button>
+  <h2>LED 2</h2><div id="fasce1"></div>
+  <button id="agg1" class="aggiungi" type="button">+ Aggiungi fascia</button>
+  <button id="conferma" type="button">Conferma modifica</button>
+  <div id="errore" role="alert"></div>
+  <h2>Calendario attuale</h2>
+  <div id="riepilogo"></div>
+</section>
 
 <script>
 "use strict";
@@ -188,6 +234,7 @@ function abilitaLed(si) {
 function gestisciRiga(riga) {
   riga = riga.trim();
   if (!riga) return;
+  if (gestisciCalendario(riga)) return;
   log("< " + riga);
   const m = /Pin\s*(11|12)\s*:\s*(ON|OFF)/i.exec(riga);
   if (m) mostraLed(m[1] === "11" ? 1 : 2, m[2].toUpperCase() === "ON");
@@ -247,6 +294,8 @@ async function connetti() {
     abilitaLed(true);
     log("Connesso. Tocca un LED per commutarlo.");
     await inviaOra();
+    calendarioInArrivo = vuoto();
+    await invia("G\n");
   } catch (e) {
     if (e.name === "NotFoundError") setStato("Nessun dispositivo selezionato");
     else setStato("Errore: " + e.message, "errore");
@@ -257,6 +306,9 @@ async function connetti() {
 }
 
 function pulisci() {
+  mostraVista(false);
+  $("apriCal").disabled = true;
+  $("conferma").disabled = true;
   charScrittura = null;
   charNotifica = null;
   abilitaLed(false);
@@ -279,16 +331,24 @@ function disconnetti() {
   setStato("Non connesso");
 }
 
+let coda = Promise.resolve();
+// Scrive a blocchi da 20 byte, in ordine, anche per testi lunghi
+function scrivi(testo) {
+  coda = coda.then(async () => {
+    if (!charScrittura) return;
+    const dati = enc.encode(testo);
+    for (let i = 0; i < dati.length; i += 20) {
+      const pezzo = dati.slice(i, i + 20);
+      if (charScrittura.properties.write) await charScrittura.writeValue(pezzo);
+      else await charScrittura.writeValueWithoutResponse(pezzo);
+    }
+  }).catch(e => setStato("Invio fallito: " + e.message, "errore"));
+  return coda;
+}
+
 async function invia(testo) {
-  if (!charScrittura) return;
-  const dati = enc.encode(testo);
-  try {
-    if (charScrittura.properties.writeWithoutResponse) await charScrittura.writeValueWithoutResponse(dati);
-    else await charScrittura.writeValue(dati);
-    log("> " + testo);
-  } catch (e) {
-    setStato("Invio fallito: " + e.message, "errore");
-  }
+  await scrivi(testo);
+  log("> " + testo.trim());
 }
 
 // Invia l'ora locale del telefono nel formato T + AAAAMMGGhhmmss (15 caratteri)
@@ -297,8 +357,172 @@ function inviaOra() {
   const p = (n, l = 2) => String(n).padStart(l, "0");
   const testo = "T" + p(d.getFullYear(), 4) + p(d.getMonth() + 1) + p(d.getDate()) +
                 p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
-  return invia(testo);
+  return invia(testo + "\n");
 }
+
+// ---- Calendario ----
+const GIORNI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+const MAX_FASCE = 4;
+const $ = id => document.getElementById(id);
+const vuoto = () => Array.from({ length: 7 }, () => [[], []]);   // [giorno][led] = [{on, off}]
+let calendario = vuoto(), calendarioInArrivo = vuoto(), inAttesa = null;
+let bozza = [[], []], sporca = false;
+const selezione = new Set();
+
+function mostraVista(cal) {
+  $("principale").hidden = cal;
+  $("calendario").hidden = !cal;
+  window.scrollTo(0, 0);
+}
+
+// Righe dalla scheda: C<giorno><led>hhmmhhmm... e CE a fine elenco
+function gestisciCalendario(riga) {
+  let m;
+  if ((m = /^C([0-6])([12])((?:\d{8})*)$/.exec(riga))) {
+    calendarioInArrivo[+m[1]][+m[2] - 1] = (m[3].match(/\d{8}/g) || []).map(t => ({
+      on: t.slice(0, 2) + ":" + t.slice(2, 4), off: t.slice(4, 6) + ":" + t.slice(6, 8) }));
+    return true;
+  }
+  if (riga === "CE") {
+    calendario = calendarioInArrivo;
+    $("apriCal").disabled = false;
+    disegnaRiepilogo();
+    log("Calendario letto dalla scheda.");
+    return true;
+  }
+  if (riga === "Calendario salvato" && inAttesa) {
+    calendario = inAttesa; inAttesa = null; sporca = false;
+    disegnaRiepilogo();
+    mostraVista(false);
+    setStato("Calendario salvato nella scheda", "ok");
+    log("Calendario salvato.");
+    return true;
+  }
+  if (riga === "Calendario non valido") {
+    inAttesa = null;
+    $("conferma").disabled = false;
+    $("errore").textContent = "La scheda ha rifiutato il calendario";
+    return true;
+  }
+  return false;
+}
+
+const testoFasce = f => f.length ? f.map(t => t.on + "–" + t.off).join(", ") : "spento";
+
+function disegnaRiepilogo() {
+  $("riepilogo").innerHTML = calendario.map((g, i) =>
+    `<div class="giorno"><b>${GIORNI[i]}</b><span>LED 1: ${testoFasce(g[0])}</span><span>LED 2: ${testoFasce(g[1])}</span></div>`
+  ).join("");
+}
+
+function disegnaBozza() {
+  [0, 1].forEach(led => {
+    const box = $("fasce" + led);
+    box.textContent = "";
+    if (!bozza[led].length) {
+      const p = document.createElement("p");
+      p.className = "vuoto";
+      p.textContent = "Nessuna fascia: sempre spento";
+      box.append(p);
+    }
+    bozza[led].forEach((f, i) => {
+      const riga = document.createElement("div");
+      riga.className = "fascia";
+      [["on", "Accendi"], ["off", "Spegni"]].forEach(([k, titolo]) => {
+        const l = document.createElement("label");
+        l.textContent = titolo;
+        const inp = document.createElement("input");
+        inp.type = "time";
+        inp.value = f[k];
+        inp.addEventListener("input", () => { f[k] = inp.value; sporca = true; });
+        l.append(inp);
+        riga.append(l);
+      });
+      const x = document.createElement("button");
+      x.type = "button";
+      x.className = "rimuovi";
+      x.textContent = "✕";
+      x.setAttribute("aria-label", "Rimuovi fascia");
+      x.addEventListener("click", () => { bozza[led].splice(i, 1); sporca = true; disegnaBozza(); });
+      riga.append(x);
+      box.append(riga);
+    });
+    $("agg" + led).hidden = bozza[led].length >= MAX_FASCE;
+  });
+}
+
+// Selezionando un giorno non ancora modificato, la bozza parte dal suo calendario attuale
+function scegli(lista) {
+  selezione.clear();
+  lista.forEach(i => selezione.add(i));
+  [...$("giorni").children].forEach((b, i) => b.setAttribute("aria-pressed", selezione.has(i)));
+  if (!sporca && selezione.size) {
+    const d = Math.min(...selezione);
+    bozza = [0, 1].map(l => calendario[d][l].map(t => ({ ...t })));
+    disegnaBozza();
+  }
+}
+
+GIORNI.forEach((g, i) => {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "chip";
+  b.textContent = g;
+  b.setAttribute("aria-pressed", "false");
+  b.addEventListener("click", () =>
+    scegli(selezione.has(i) ? [...selezione].filter(x => x !== i) : [...selezione, i]));
+  $("giorni").append(b);
+});
+document.querySelectorAll(".scorciatoie button").forEach(b =>
+  b.addEventListener("click", () => scegli([...b.dataset.g].map(Number))));
+[0, 1].forEach(led => $("agg" + led).addEventListener("click", () => {
+  bozza[led].push({ on: "", off: "" });
+  sporca = true;
+  disegnaBozza();
+}));
+
+$("apriCal").addEventListener("click", () => {
+  bozza = [[], []];
+  sporca = false;
+  $("errore").textContent = "";
+  $("conferma").disabled = false;
+  scegli([]);
+  disegnaBozza();
+  mostraVista(true);
+});
+$("indietro").addEventListener("click", () => mostraVista(false));
+
+$("conferma").addEventListener("click", async () => {
+  const errore = t => { $("errore").textContent = t; };
+  if (!selezione.size) return errore("Seleziona almeno un giorno");
+  for (const led of bozza) for (const f of led) {
+    if (!f.on || !f.off) return errore("Compila tutti gli orari");
+    if (f.on === f.off) return errore("Accensione e spegnimento non possono coincidere");
+  }
+  if (!bozza[0].length && !bozza[1].length &&
+      !confirm("Nessuna fascia: nei giorni scelti i LED resteranno spenti. Confermi?")) return;
+
+  const nuovo = JSON.parse(JSON.stringify(calendario));
+  selezione.forEach(d => { nuovo[d] = JSON.parse(JSON.stringify(bozza)); });
+
+  let testo = "KS\n";
+  nuovo.forEach((g, d) => g.forEach((f, r) => {
+    testo += "K" + d + (r + 1) + f.map(t => (t.on + t.off).replace(/:/g, "")).join("") + "\n";
+  }));
+  testo += "KE\n";
+
+  inAttesa = nuovo;
+  $("conferma").disabled = true;
+  errore("Invio in corso…");
+  await scrivi(testo);
+  setTimeout(() => {
+    if (inAttesa) {
+      inAttesa = null;
+      $("conferma").disabled = false;
+      errore("La scheda non ha confermato: riprova");
+    }
+  }, 8000);
+});
 
 el.ora.addEventListener("click", inviaOra);
 
